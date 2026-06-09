@@ -749,7 +749,7 @@ Use the `brainstorming` skill's mini-server to host the mockup over HTTP.
    find ~/.codex/superpowers -name start-server.sh -path '*brainstorming/scripts*' 2>/dev/null | head -1
    ```
 
-   If none match, invoke the brainstorming sub-skill via the harness's mechanism (Claude Code: `Skill: superpowers:brainstorming`; Gemini CLI: `activate_skill('superpowers:brainstorming')`; Codex CLI: read the SKILL.md inline) and use the printed base directory under `scripts/`.
+   If none match, resolve `brainstorming` per § "Invoking a sub-skill" and invoke it to obtain its base directory under `scripts/`. (If `deps.brainstorming.mode === "unavailable"`, do not attempt this — skip the companion server and use the pure `file://` fallback below.)
 2. Start the server in the background:
 
    ```bash
@@ -988,7 +988,7 @@ Do NOT invoke writing-plans until ALL of the following are true:
 
    Record the outcome of both checks in `state.json:phase4.postPlanChecklist = { dsTasks: "ok" | "confirmed-no-ds" | "revised", testPrecedence: "ok" | "confirmed-no-tests" | "revised" }`. This is what the Phase 4 gate reads.
 
-3. **Execute via `subagent-driven-development`** (or `executing-plans` — ask the user). Unlike Phase 1, parallel subagents are useful here because plan tasks usually touch independent files.
+3. **Invoke `subagent-driven-development`** (or **`executing-plans`** — ask the user). Unlike Phase 1, parallel subagents are useful here because plan tasks usually touch independent files.
 
 ### Phase 4 gate
 
@@ -1179,7 +1179,7 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "slug": "pricing-card",
   "phase": "phase-2-promote",
   "lastUpdated": "2026-05-21T...",
@@ -1210,6 +1210,8 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
     "brainstorming":               { "mode": "installed", "path": null, "stale": false },
     "writing-plans":               { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
     "subagent-driven-development": { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "executing-plans":             { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "using-git-worktrees":         { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
     "frontend-design":             { "mode": "cached", "path": "/home/u/.markup-design/deps/frontend-design/SKILL.md", "stale": false }
   },
   "qaRun": {
@@ -1222,7 +1224,7 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
 }
 ```
 
-- `schemaVersion`: integer. Currently `2`. Reads treat missing `schemaVersion` as `0` and migrate inline (defaults: `chromeMcp` absent ⇒ resolve via §"Chrome MCP tool resolution"; `qaRun` absent ⇒ `null`; `deps` absent (v1) ⇒ resolve fresh via §"Dependency resolution"). See `docs/SCHEMA-CHANGELOG.md` for the compat policy.
+- `schemaVersion`: integer. Currently `1`. Reads treat missing `schemaVersion` as `0` and migrate inline (defaults: `chromeMcp` absent ⇒ resolve via §"Chrome MCP tool resolution"; `qaRun` absent ⇒ `null`; `deps` absent ⇒ resolve fresh via §"Dependency resolution"). See `docs/SCHEMA-CHANGELOG.md` for the compat policy.
 - `framework`: copied from `.markup-design/scratch/strategy.json:framework` at the first `state.json` write of this feature. Audit trail of which framework was active.
 - `strategy`: copied from `.markup-design/scratch/strategy.json:chosen` at the first `state.json` write of this feature. Audit trail of which strategy was active.
 - `tweakerChoices`: `null` before Phase 1 approval; flat object of `id → value` after.
@@ -1230,7 +1232,7 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
 - `companionServer.tunnelUrl`: `null` if the user declined the Cloudflare tunnel or `cloudflared` is absent.
 - `companionServer.pidFile`: path to the file that holds the cloudflared background-process PID. `null` if the tunnel is not active. Used on resume to kill the prior tunnel before relaunching.
 - `chromeMcp`: object mapping capability names (`evaluateJs`, `screenshot`, `click`, `hover`, `focus`, `type`, `navigate`) to the resolved tool name on the active Chrome MCP server. Computed once at skill start (see § "Chrome MCP tool resolution"). `null` when no Chrome MCP server is registered — Phase 5 falls back to the manual checklist in that case.
-- `deps`: object mapping each composed sub-skill name to its resolution `{ mode: "installed" | "cached", path, stale }`. Computed once at skill start via § "Dependency resolution" (`./scripts/ensure-deps.sh` for non-installed deps). `path` is `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (read `<path>/skills/<name>/SKILL.md`), for frontend-design it is the `SKILL.md` itself. Held in memory until the feature slug exists, then persisted here. Absent in `schemaVersion < 2` state files — resolve fresh on read.
+- `deps`: object mapping each composed sub-skill name to its resolution `{ mode: "installed" | "cached", path, stale }`. Computed once at skill start via § "Dependency resolution" (`./scripts/ensure-deps.sh` for non-installed deps). `path` is `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (read `<path>/skills/<name>/SKILL.md`), for frontend-design it is the `SKILL.md` itself. Held in memory until the feature slug exists, then persisted here. Absent in older state files (pre-`deps`) — resolve fresh on read; this is an additive field and does not bump `schemaVersion`.
 - `qaRun`: per-feature Phase 5 run record. `folder` is the relative path under `.markup-design/qa/<slug>/<YYYY-MM-DD-HHMMSS>/` where all `<scenario>-{live,ds}.png` screenshots for the latest run live. `scenarios` lists scenario IDs covered (one per matrix row plus any auto-sweep additions). `discoveredStates` lists states observed via the auto-sweep but absent from the matrix. `deltas` is an array of `{ scenario, cause, decision }` entries (one per delta found). `null` until Phase 5 runs.
 
 **`branchCheck` lives only in `strategy.json`, not `state.json`.** Rationale: the §0.2.5 branch decision is repo-wide and persistent across features (one strategy → N features in the same worktree). Duplicating it per-feature would create two sources of truth for the same fact. Per-feature `state.json` reads `strategy.json:branchCheck` on resume (see §0.6 Branch-check reuse).

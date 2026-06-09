@@ -13,15 +13,6 @@ Tracks changes to the persisted JSON schemas of `design-feature` and `bootstrap-
 - **Do not bump** for additive changes (new optional field). Document them here under "Additive — no bump".
 - Skill reads treat **missing** `schemaVersion` as `0` and migrate inline with safe defaults (see field-level docs in each SKILL.md).
 
-## Version 3 (2026-06-09) — feat/runtime-skill-deps
-
-**Additive on `state.json` — schemaVersion 1 → 2.** Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"superpowers"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start:
-
-- `mode`: `"installed"` (found via harness plugin registry) or `"cached"` (downloaded into `~/.markup-design/deps` by `ensure-deps`).
-- `path`: `null` when `mode === "installed"`; for `cached` superpowers it is the clone root (skills are read from `<path>/skills/<name>/SKILL.md`); for `cached` frontend-design it is the `SKILL.md` file itself.
-- `stale`: boolean — `true` if the cached copy is older than the TTL but was used because a re-fetch failed.
-
-Migration: reads of a v1 `state.json` (no `deps` field) must resolve `deps` fresh at skill start via the skill's § "Dependency resolution" section. No destructive migration needed — the field is simply populated on the next run.
 
 ## Version 2 (2026-05-24) — Sub-plan 10
 
@@ -42,4 +33,12 @@ Initial versioning. Establishes `schemaVersion: 1` baseline for all three files.
 
 ## Additive — no bump
 
-_(none yet — log future additive changes here with date + sub-plan reference)_
+### `state.json` — `deps` (2026-06-09, feat/runtime-skill-deps)
+
+Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"brainstorming"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start. `schemaVersion` stays `1` (additive, per the policy above).
+
+- `mode`: `"installed"` (found via the harness plugin registry) or `"cached"` (fetched into `~/.markup-design/deps` by `ensure-deps`).
+- `path`: `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (skills are read from `<path>/skills/<name>/SKILL.md`); for `cached` frontend-design it is the `SKILL.md` file itself.
+- `stale`: boolean — `true` if the cached copy is older than the TTL but was used because a re-fetch failed.
+
+Migration: reads of a `state.json` written before `deps` existed resolve it fresh at skill start via the skill's § "Dependency resolution" — populated on the next run, no destructive migration.
