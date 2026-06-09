@@ -17,8 +17,8 @@ Tracks changes to the persisted JSON schemas of `design-feature` and `bootstrap-
 
 **Additive on `state.json` — schemaVersion 1 → 2.** Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"superpowers"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start:
 
-- `mode`: `"installed"` (found via harness plugin registry) or `"fetched"` (downloaded into `~/.markup-design/deps` by `ensure-deps`).
-- `path`: absolute path to the resolved skill file.
+- `mode`: `"installed"` (found via harness plugin registry) or `"cached"` (downloaded into `~/.markup-design/deps` by `ensure-deps`).
+- `path`: `null` when `mode === "installed"`; for `cached` superpowers it is the clone root (skills are read from `<path>/skills/<name>/SKILL.md`); for `cached` frontend-design it is the `SKILL.md` file itself.
 - `stale`: boolean — `true` if the cached copy is older than the TTL but was used because a re-fetch failed.
 
 Migration: reads of a v1 `state.json` (no `deps` field) must resolve `deps` fresh at skill start via the skill's § "Dependency resolution" section. No destructive migration needed — the field is simply populated on the next run.
