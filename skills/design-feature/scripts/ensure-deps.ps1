@@ -7,6 +7,9 @@ $ErrorActionPreference = 'Stop'
 if ($args.Count -lt 1) { [Console]::Error.WriteLine('usage: ensure-deps.ps1 <dep> [<dep> ...] (dep: superpowers|frontend-design)'); exit 4 }
 
 $DepsDir = if ($env:DESIGN_SKILLS_DEPS_DIR) { $env:DESIGN_SKILLS_DEPS_DIR } else { Join-Path $HOME '.markup-design/deps' }
+# Resolve to an absolute filesystem path so the [System.IO.File] writes (which use the
+# process CWD, not PowerShell's $PWD) agree with Test-Path/Get-Content/Move-Item.
+$DepsDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DepsDir)
 $TtlRaw  = if ($null -ne $env:DESIGN_SKILLS_DEPS_TTL_DAYS -and $env:DESIGN_SKILLS_DEPS_TTL_DAYS -ne '') { $env:DESIGN_SKILLS_DEPS_TTL_DAYS } else { '30' }
 if ($TtlRaw -notmatch '^\d+$') { [Console]::Error.WriteLine("DESIGN_SKILLS_DEPS_TTL_DAYS must be a non-negative integer, got: $TtlRaw"); exit 4 }
 $TtlDays = [int]$TtlRaw
@@ -79,7 +82,7 @@ foreach ($dep in $args) {
 
   if ($fresh) {
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$sIso`",`"stale`":false}"
-  } elseif (Do-Fetch $dep) {
+  } elseif ((Do-Fetch $dep) -and (Test-Path $sentinel)) {
     $nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     [System.IO.File]::WriteAllLines($stamp, [string[]]@("$NowEpoch", $nowIso))
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$nowIso`",`"stale`":false}"

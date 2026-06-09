@@ -129,8 +129,12 @@ The manifest schema (stdout of `ensure-deps`, also at `~/.markup-design/deps/man
 
 ```json
 { "superpowers":     { "path": "<abs>/superpowers", "mode": "cached", "fetchedAt": "<iso>", "stale": false },
-  "frontend-design": { "path": "<abs>/frontend-design/SKILL.md", "mode": "cached|unavailable", "fetchedAt": "<iso>|null", "stale": false } }
+  "frontend-design": { "path": "<abs>/frontend-design/SKILL.md", "mode": "cached", "fetchedAt": "<iso>", "stale": false } }
 ```
+
+A dep that is neither installed nor cacheable (offline, fetch failed) is reported as
+`{ "path": null, "mode": "unavailable", "fetchedAt": null, "stale": false }` and `ensure-deps` exits
+non-zero — that triggers the refuse in step 5.
 
 ### Invoking a sub-skill (resolution-aware)
 

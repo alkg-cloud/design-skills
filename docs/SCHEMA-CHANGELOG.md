@@ -35,7 +35,7 @@ Initial versioning. Establishes `schemaVersion: 1` baseline for all three files.
 
 ### `state.json` — `deps` (2026-06-09, feat/runtime-skill-deps)
 
-Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"brainstorming"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start. `schemaVersion` stays `1` (additive, per the policy above).
+Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"brainstorming"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start. `schemaVersion` stays `1` (additive, per the policy above). (The `ensure-deps` manifest also carries a `fetchedAt` timestamp; it is not persisted into `state.json` — cache freshness is re-derived from the on-disk stamp file.)
 
 - `mode`: `"installed"` (found via the harness plugin registry) or `"cached"` (fetched into `~/.markup-design/deps` by `ensure-deps`). (`ensure-deps` can also emit `"unavailable"` — not installed, no cache, and the fetch failed — but that triggers a hard refuse at skill start, so it never reaches a persisted `state.json`.)
 - `path`: `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (skills are read from `<path>/skills/<name>/SKILL.md`); for `cached` frontend-design it is the `SKILL.md` file itself.

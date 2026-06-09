@@ -103,7 +103,7 @@ for dep in "$@"; do
     continue
   fi
 
-  if do_fetch "$dep"; then
+  if do_fetch "$dep" && [ -e "$sentinel" ]; then
     now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '%s\n%s\n' "$now_epoch" "$now_iso" > "$stamp"
     append "\"$dep\":{\"path\":\"$root\",\"mode\":\"cached\",\"fetchedAt\":\"$now_iso\",\"stale\":false}"

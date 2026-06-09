@@ -288,6 +288,20 @@ async function smokeEnsureDeps() {
   if (r.status === 0) fail('offline-without-cache should exit non-zero');
   if (!/"superpowers":\{[^}]*"mode":"unavailable"/.test(r.stdout)) fail(`expected mode unavailable: ${r.stdout}`);
 
+  // (f) clone succeeds but the sentinel (skills/brainstorming/SKILL.md) is absent →
+  //     must NOT report cached; treated as unavailable (guards against upstream path renames).
+  const noSentinel = join(base, 'sp-nosentinel');
+  mkdirSync(join(noSentinel, 'skills'), { recursive: true });
+  writeFileSync(join(noSentinel, 'README.md'), '# no brainstorming here\n');
+  g(['init', '-b', 'main'], noSentinel);
+  g(['add', '-A'], noSentinel);
+  g(['commit', '-m', 'no-sentinel fixture'], noSentinel);
+  const cache3 = join(base, 'cache3');
+  r = spawnSync(script, ['superpowers'], { encoding: 'utf8',
+    env: { ...process.env, ...env, DESIGN_SKILLS_DEPS_DIR: cache3, SUPERPOWERS_REPO: `file://${noSentinel}` } });
+  if (r.status === 0) fail('clone-without-sentinel should exit non-zero');
+  if (!/"superpowers":\{[^}]*"mode":"unavailable"/.test(r.stdout)) fail(`clone-without-sentinel: expected mode unavailable: ${r.stdout}`);
+
   rmSync(base, { recursive: true, force: true });
   console.log('✓ smoke-test: ensure-deps fetch/cache/TTL/offline branches pass.');
 }
