@@ -17,7 +17,7 @@ $FdUrl   = if ($env:FRONTEND_DESIGN_URL) { $env:FRONTEND_DESIGN_URL } else { 'ht
 $StampsDir = Join-Path $DepsDir '.stamps'
 New-Item -ItemType Directory -Force -Path $StampsDir | Out-Null
 $Manifest = Join-Path $DepsDir 'manifest.json'
-$NowEpoch = [int][double]::Parse((Get-Date -UFormat %s))
+$NowEpoch = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $TtlSecs  = $TtlDays * 86400
 
 function Root-Path($dep) { switch ($dep) {
@@ -81,7 +81,7 @@ foreach ($dep in $args) {
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$sIso`",`"stale`":false}"
   } elseif (Do-Fetch $dep) {
     $nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    Set-Content -Path $stamp -Value @("$NowEpoch", $nowIso)
+    Set-Content -Path $stamp -Value @("$NowEpoch", $nowIso) -Encoding utf8
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$nowIso`",`"stale`":false}"
   } elseif ($present) {
     [Console]::Error.WriteLine("ensure-deps: $dep fetch failed; using stale cache")
@@ -95,7 +95,7 @@ foreach ($dep in $args) {
 }
 $json = '{' + ($entries -join ',') + '}'
 $tmpManifest = Join-Path $DepsDir ('.manifest.' + [System.IO.Path]::GetRandomFileName())
-Set-Content -Path $tmpManifest -Value $json
-Move-Item -Force $tmpManifest $Manifest
+Set-Content -Path $tmpManifest -Value $json -Encoding utf8
 Write-Output $json
+Move-Item -Force $tmpManifest $Manifest
 exit $overall
