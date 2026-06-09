@@ -94,21 +94,57 @@ If either is unset when the skill starts, the very first `./scripts/doctor.sh` i
 | `lint-ds`      | `markup-cli check --build --strict`                     | Pure-local structural lint; no network                 |
 | `comment`      | `markup-cli comments {list,read,reply,react,resolve}`   | Subcommand dispatcher; inline `curl` is also acceptable for one-offs |
 
-## Hard preconditions (refuse if missing)
+## Dependency resolution (installed → cached → stale → refuse)
 
-This skill is a hard-fail wrapper unless the following are present:
+This skill composes sub-skills from **superpowers** (`brainstorming`, `writing-plans`,
+`subagent-driven-development`, `executing-plans`, `using-git-worktrees`) and Anthropic's
+**frontend-design**. Pre-installing those plugins is the fast path, but it is **not required** —
+missing sub-skills are fetched into a per-user cache at skill start and consumed by reading their
+`SKILL.md` inline (the same mechanism Codex CLI already uses, since it has no `Skill` tool).
 
-1. **superpowers plugin installed** — the skill calls `brainstorming`, `writing-plans`, `subagent-driven-development` via the Skill tool. If any of these three skills are not loadable, abort with:
+Resolve each dependency with this precedence, once at skill start:
 
-   > ❌ HARD: superpowers plugin not detected. Install: https://github.com/obra/superpowers
+1. **Installed plugin** — if the sub-skill appears in the harness's available-skills list, use it
+   via the `Skill` tool (Claude Code) / `activate_skill` (Gemini CLI). Nothing to fetch.
+2. **Fresh cache** — else, if `~/.markup-design/deps` holds a copy fetched < 30 days ago, read its
+   `SKILL.md` inline.
+3. **Refresh** — else run `./scripts/ensure-deps.sh <missing-deps>` (Windows:
+   `pwsh ./scripts/ensure-deps.ps1 <missing-deps>`). It clones superpowers (shallow, branch `main`)
+   and/or curls frontend-design's `SKILL.md` into the cache, honoring the 30-day TTL, and prints a
+   manifest. On success, read the cached `SKILL.md` inline.
+4. **Stale cache** — if the refresh fails (offline / no `git` / no `curl`) but a cache already
+   exists, use it anyway and surface a ⚠ in the capability matrix. `ensure-deps` exits 0 and marks
+   `"stale": true`.
+5. **Refuse (only when truly unavailable)** — if a sub-skill is neither installed nor cached and the
+   fetch fails (`ensure-deps` marks it `"mode": "unavailable"` and exits non-zero), abort with:
+
+   > ❌ HARD: `<dep>` indisponível — não está instalado, não há cache, e o fetch falhou (offline?).
+   > Instale o plugin (superpowers: https://github.com/obra/superpowers · frontend-design:
+   > `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`)
+   > ou rode a skill com rede disponível.
 
    Do not perform any other action. Do not write files. Do not pretend to start.
 
-2. **frontend-design plugin installed** — the skill calls Anthropic's `frontend-design` skill via the Skill tool to generate the Phase 2 mockup. This is a **separate plugin** from superpowers, shipped by Anthropic in the `claude-code-plugins` marketplace at `anthropics/claude-code` (plugin path: `plugins/frontend-design`). If the `frontend-design` skill is not loadable, abort with:
+The manifest schema (stdout of `ensure-deps`, also at `~/.markup-design/deps/manifest.json`):
 
-   > ❌ HARD: frontend-design plugin not detected. Install on Claude Code: `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`. Other harnesses: see § "Sub-skill availability across harnesses".
+```json
+{ "superpowers":     { "path": "<abs>/superpowers", "mode": "cached", "fetchedAt": "<iso>", "stale": false },
+  "frontend-design": { "path": "<abs>/frontend-design/SKILL.md", "mode": "cached|unavailable", "fetchedAt": "<iso>|null", "stale": false } }
+```
 
-   Do not perform any other action. Do not write files. Do not pretend to start.
+### Invoking a sub-skill (resolution-aware)
+
+Every "**Invoke `<sub-skill>`**" instruction in this skill resolves through the precedence above.
+Build a `deps` map at skill start: `deps.<sub-skill> = { mode: "installed" | "cached", path }`
+(plus `stale`). At each call site:
+
+- `mode === "installed"` → invoke via the `Skill` tool (Claude Code) / `activate_skill` (Gemini CLI) — unchanged behavior.
+- `mode === "cached"` → **read `deps.<sub-skill>.path` inline and follow it** as the active
+  instruction set. For superpowers sub-skills the path is the clone root, so the file is
+  `deps.<sub-skill>.path/skills/<sub-skill>/SKILL.md`; for frontend-design it is the `path` itself.
+
+This rule is the single definition of sub-skill invocation. Call sites elsewhere in this skill say
+only "Invoke `<sub-skill>`" and inherit this resolution — do not re-specify the branch per site.
 
 ## Soft dependencies (degrade gracefully, surface a disclaimer)
 
@@ -136,8 +172,14 @@ After the hard check passes, detect optional dependencies and surface a one-bloc
 ```
 design-feature ready. Capability matrix:
 
-  ✓ HARD: superpowers <version> detectado
-  ✓ HARD: frontend-design <version> detectado
+  {superpowers:     ✓ instalado (via plugin)
+                    |  ↻ cacheado fresco (~/.markup-design/deps, fetched <date>)
+                    |  ⚠ cacheado stale (fetch falhou; usando cópia antiga)
+                    |  ✗ indisponível (não instalado, sem cache, offline) → refuse}
+  {frontend-design: ✓ instalado (via plugin)
+                    |  ↻ cacheado fresco (~/.markup-design/deps/frontend-design/SKILL.md)
+                    |  ⚠ cacheado stale
+                    |  ✗ indisponível → refuse}
   {env:             ✓ MARKUP_URL e MARKUP_TOKEN setados
                     |  ✗ MARKUP_URL e/ou MARKUP_TOKEN ausentes
                                                 ↳ setar antes de invocar a skill (export MARKUP_URL=…; export MARKUP_TOKEN=…)
