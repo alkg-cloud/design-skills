@@ -29,6 +29,8 @@ FRONTEND_DESIGN_URL="${FRONTEND_DESIGN_URL:-https://raw.githubusercontent.com/an
 
 [ "$#" -ge 1 ] || { printf 'usage: ensure-deps.sh <dep> [<dep> ...]  (dep: superpowers|frontend-design)\n' >&2; exit 4; }
 
+[[ "$TTL_DAYS" =~ ^[0-9]+$ ]] || { printf 'DESIGN_SKILLS_DEPS_TTL_DAYS must be a non-negative integer, got: %s\n' "$TTL_DAYS" >&2; exit 4; }
+
 mkdir -p "$DEPS_DIR/.stamps"
 MANIFEST="$DEPS_DIR/manifest.json"
 now_epoch=$(date +%s)
@@ -57,13 +59,14 @@ fetch_superpowers() {
 }
 
 fetch_frontend_design() {
-  local dir="$DEPS_DIR/frontend-design" tmp
+  local dir="$DEPS_DIR/frontend-design" tmp=""
   mkdir -p "$dir"
   tmp="$(mktemp)"
+  trap 'rm -f "$tmp"; trap - RETURN' RETURN
   if curl -fsSL "$FRONTEND_DESIGN_URL" -o "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
     mv "$tmp" "$dir/SKILL.md"
   else
-    rm -f "$tmp"; return 1
+    return 1
   fi
 }
 
@@ -113,5 +116,7 @@ for dep in "$@"; do
   fi
 done
 
-printf '{%s}\n' "$entries" | tee "$MANIFEST"
+_tmp_manifest="$(mktemp "$DEPS_DIR/.manifest.XXXXXX")"
+printf '{%s}\n' "$entries" | tee "$_tmp_manifest"
+mv "$_tmp_manifest" "$MANIFEST"
 exit "$overall_exit"

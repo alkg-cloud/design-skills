@@ -3,7 +3,7 @@
 // Reads test-fixtures/sample-react-app/ and the strategies.json catalog,
 // then asserts the computed strategy matches the expected golden.
 
-import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
@@ -262,17 +262,19 @@ async function smokeEnsureDeps() {
   if (!/"superpowers":\{[^}]*"mode":"cached"[^}]*"stale":false/.test(r.stdout)) fail(`superpowers not cached/fresh: ${r.stdout}`);
   if (!/"frontend-design":\{[^}]*"mode":"cached"[^}]*"stale":false/.test(r.stdout)) fail(`frontend-design not cached/fresh: ${r.stdout}`);
 
-  // (b) second run within TTL → no refetch (stamp mtime unchanged)
+  // (b) second run within TTL → no refetch (stamp content unchanged)
   const stamp = join(cache, '.stamps/superpowers.stamp');
-  const mtime1 = statSync(stamp).mtimeMs;
+  const stampContent1 = readFileSync(stamp, 'utf8');
   r = run();
   if (r.status !== 0) fail(`ensure-deps fresh run exited ${r.status}`);
-  if (statSync(stamp).mtimeMs !== mtime1) fail('fresh cache should not refetch (stamp changed)');
+  if (readFileSync(stamp, 'utf8') !== stampContent1) fail('fresh cache should not refetch (stamp changed)');
 
-  // (c) TTL=0 forces refresh (stamp mtime changes), still exit 0 + fresh
+  // (c) TTL=0 forces refresh (stamp content changes), still exit 0 + fresh.
+  // Sleep 1100 ms so the epoch second in the stamp is guaranteed to differ.
+  await new Promise(res => setTimeout(res, 1100));
   r = run({ DESIGN_SKILLS_DEPS_TTL_DAYS: '0' });
   if (r.status !== 0) fail(`ensure-deps TTL=0 run exited ${r.status}`);
-  if (statSync(stamp).mtimeMs === mtime1) fail('TTL=0 should force a refetch (stamp unchanged)');
+  if (readFileSync(stamp, 'utf8') === stampContent1) fail('TTL=0 should force a refetch (stamp unchanged)');
 
   // (d) offline + stale cache → exit 0, stale:true
   r = run({ DESIGN_SKILLS_DEPS_TTL_DAYS: '0', SUPERPOWERS_REPO: `file://${base}/does-not-exist` });
