@@ -13,6 +13,7 @@ Tracks changes to the persisted JSON schemas of `design-feature` and `bootstrap-
 - **Do not bump** for additive changes (new optional field). Document them here under "Additive — no bump".
 - Skill reads treat **missing** `schemaVersion` as `0` and migrate inline with safe defaults (see field-level docs in each SKILL.md).
 
+
 ## Version 2 (2026-05-24) — Sub-plan 10
 
 **Breaking — frontmatter contract.** The `compat.cli` field is removed from both SKILL.md files. Skills no longer depend on the `markup-cli` npm package; deterministic operations move to in-skill scripts at `skills/design-feature/scripts/{doctor,mockup-upload,promote,sync-index,lint-ds,comment}.{sh,ps1}` (referenced via `../design-feature/scripts/` from bootstrap-design-system). Auth + server location move to env vars: `MARKUP_URL` and `MARKUP_TOKEN`.
@@ -32,4 +33,12 @@ Initial versioning. Establishes `schemaVersion: 1` baseline for all three files.
 
 ## Additive — no bump
 
-_(none yet — log future additive changes here with date + sub-plan reference)_
+### `state.json` — `deps` (2026-06-09, feat/runtime-skill-deps)
+
+Added a top-level `deps` object: a map of composed sub-skill name (e.g. `"brainstorming"`, `"frontend-design"`) → `{ mode, path, stale }`, recording how each sub-skill was resolved at skill start. `schemaVersion` stays `1` (additive, per the policy above). (The `ensure-deps` manifest also carries a `fetchedAt` timestamp; it is not persisted into `state.json` — cache freshness is re-derived from the on-disk stamp file.)
+
+- `mode`: `"installed"` (found via the harness plugin registry) or `"cached"` (fetched into `~/.markup-design/deps` by `ensure-deps`). (`ensure-deps` can also emit `"unavailable"` — not installed, no cache, and the fetch failed — but that triggers a hard refuse at skill start, so it never reaches a persisted `state.json`.)
+- `path`: `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (skills are read from `<path>/skills/<name>/SKILL.md`); for `cached` frontend-design it is the `SKILL.md` file itself.
+- `stale`: boolean — `true` if the cached copy is older than the TTL but was used because a re-fetch failed.
+
+Migration: reads of a `state.json` written before `deps` existed resolve it fresh at skill start via the skill's § "Dependency resolution" — populated on the next run, no destructive migration.

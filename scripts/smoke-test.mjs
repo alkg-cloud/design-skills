@@ -3,7 +3,7 @@
 // Reads test-fixtures/sample-react-app/ and the strategies.json catalog,
 // then asserts the computed strategy matches the expected golden.
 
-import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
@@ -215,3 +215,95 @@ async function smokeScripts() {
 }
 
 await smokeScripts();
+
+// ensure-deps — offline test against local fixtures (git local repo + file:// curl).
+// No network: SUPERPOWERS_REPO points at a temp git repo, FRONTEND_DESIGN_URL at a file://.
+async function smokeEnsureDeps() {
+  if (process.platform === 'win32') {
+    console.log('⚠ smoke-test: ensure-deps smoke skipped on Windows (TODO: pwsh variant).');
+    return;
+  }
+  const script = join(SCRIPTS_DIR, 'ensure-deps.sh');
+  const base = mkdtempSync(join(tmpdir(), 'edeps-'));
+
+  // Build a fake superpowers upstream as a local git repo with branch main.
+  const upstream = join(base, 'sp-upstream');
+  mkdirSync(join(upstream, 'skills/brainstorming/scripts'), { recursive: true });
+  writeFileSync(join(upstream, 'skills/brainstorming/SKILL.md'), '# brainstorming (fixture)\n');
+  writeFileSync(join(upstream, 'skills/writing-plans.placeholder'), 'x');
+  const g = (args, cwd) => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+    if (r.status !== 0) fail(`git ${args.join(' ')} failed: ${r.stderr}`);
+  };
+  g(['init', '-b', 'main'], upstream);
+  g(['add', '-A'], upstream);
+  g(['commit', '-m', 'fixture'], upstream);
+
+  // Build a fake frontend-design source file.
+  const fdSrc = join(base, 'fd-src.md');
+  writeFileSync(fdSrc, '# frontend-design (fixture)\n');
+
+  const cache = join(base, 'cache');
+  const env = {
+    DESIGN_SKILLS_DEPS_DIR: cache,
+    SUPERPOWERS_REPO: `file://${upstream}`,
+    SUPERPOWERS_REF: 'main',
+    FRONTEND_DESIGN_URL: `file://${fdSrc}`,
+  };
+  const run = (extraEnv) => spawnSync(script, ['superpowers', 'frontend-design'],
+    { encoding: 'utf8', env: { ...process.env, ...env, ...extraEnv } });
+
+  // (a) first miss → clone+curl, both cached & fresh
+  let r = run();
+  if (r.status !== 0) fail(`ensure-deps first run exited ${r.status}: ${r.stderr}`);
+  if (!existsSync(join(cache, 'superpowers/skills/brainstorming/SKILL.md'))) fail('superpowers not cloned');
+  if (!existsSync(join(cache, 'frontend-design/SKILL.md'))) fail('frontend-design not fetched');
+  if (!/"superpowers":\{[^}]*"mode":"cached"[^}]*"stale":false/.test(r.stdout)) fail(`superpowers not cached/fresh: ${r.stdout}`);
+  if (!/"frontend-design":\{[^}]*"mode":"cached"[^}]*"stale":false/.test(r.stdout)) fail(`frontend-design not cached/fresh: ${r.stdout}`);
+
+  // (b) second run within TTL → no refetch (stamp content unchanged)
+  const stamp = join(cache, '.stamps/superpowers.stamp');
+  const stampContent1 = readFileSync(stamp, 'utf8');
+  r = run();
+  if (r.status !== 0) fail(`ensure-deps fresh run exited ${r.status}`);
+  if (readFileSync(stamp, 'utf8') !== stampContent1) fail('fresh cache should not refetch (stamp changed)');
+
+  // (c) TTL=0 forces refresh (stamp content changes), still exit 0 + fresh.
+  // Sleep 1100 ms so the epoch second in the stamp is guaranteed to differ.
+  await new Promise(res => setTimeout(res, 1100));
+  r = run({ DESIGN_SKILLS_DEPS_TTL_DAYS: '0' });
+  if (r.status !== 0) fail(`ensure-deps TTL=0 run exited ${r.status}`);
+  if (readFileSync(stamp, 'utf8') === stampContent1) fail('TTL=0 should force a refetch (stamp unchanged)');
+
+  // (d) offline + stale cache → exit 0, stale:true
+  r = run({ DESIGN_SKILLS_DEPS_TTL_DAYS: '0', SUPERPOWERS_REPO: `file://${base}/does-not-exist` });
+  if (r.status !== 0) fail(`offline-with-cache should exit 0, got ${r.status}: ${r.stderr}`);
+  if (!/"superpowers":\{[^}]*"stale":true/.test(r.stdout)) fail(`expected stale:true offline: ${r.stdout}`);
+
+  // (e) offline + no cache → non-zero exit, mode unavailable
+  const cache2 = join(base, 'cache2');
+  r = spawnSync(script, ['superpowers'], { encoding: 'utf8',
+    env: { ...process.env, ...env, DESIGN_SKILLS_DEPS_DIR: cache2, SUPERPOWERS_REPO: `file://${base}/nope` } });
+  if (r.status === 0) fail('offline-without-cache should exit non-zero');
+  if (!/"superpowers":\{[^}]*"mode":"unavailable"/.test(r.stdout)) fail(`expected mode unavailable: ${r.stdout}`);
+
+  // (f) clone succeeds but the sentinel (skills/brainstorming/SKILL.md) is absent →
+  //     must NOT report cached; treated as unavailable (guards against upstream path renames).
+  const noSentinel = join(base, 'sp-nosentinel');
+  mkdirSync(join(noSentinel, 'skills'), { recursive: true });
+  writeFileSync(join(noSentinel, 'README.md'), '# no brainstorming here\n');
+  g(['init', '-b', 'main'], noSentinel);
+  g(['add', '-A'], noSentinel);
+  g(['commit', '-m', 'no-sentinel fixture'], noSentinel);
+  const cache3 = join(base, 'cache3');
+  r = spawnSync(script, ['superpowers'], { encoding: 'utf8',
+    env: { ...process.env, ...env, DESIGN_SKILLS_DEPS_DIR: cache3, SUPERPOWERS_REPO: `file://${noSentinel}` } });
+  if (r.status === 0) fail('clone-without-sentinel should exit non-zero');
+  if (!/"superpowers":\{[^}]*"mode":"unavailable"/.test(r.stdout)) fail(`clone-without-sentinel: expected mode unavailable: ${r.stdout}`);
+
+  rmSync(base, { recursive: true, force: true });
+  console.log('✓ smoke-test: ensure-deps fetch/cache/TTL/offline branches pass.');
+}
+
+await smokeEnsureDeps();

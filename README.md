@@ -5,7 +5,7 @@
 **Stop fixing the UI in PR review.**
 A design loop for Claude Code, Codex, and Gemini CLI.
 
-![version](https://img.shields.io/badge/version-0.6.1-blue) ![harness](https://img.shields.io/badge/Claude%20Code%20·%20Codex%20·%20Gemini-cross--harness-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+![version](https://img.shields.io/badge/version-0.7.0-blue) ![harness](https://img.shields.io/badge/Claude%20Code%20·%20Codex%20·%20Gemini-cross--harness-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 </div>
 
@@ -23,7 +23,7 @@ claude plugin install design-skills
 
 Restart Claude Code. Then ask your agent to design or build any feature with a visible UI — the `design-feature` skill takes over.
 
-Pin a tag with `alkg-cloud/design-skills@v0.6.1`.
+Pin a tag with `alkg-cloud/design-skills@v0.7.0`.
 
 <details>
 <summary><b>Codex CLI</b></summary>
@@ -72,9 +72,9 @@ A technical brainstorm + plan + execute follows, with DS edits as first-class ta
 <details>
 <summary><b>Stack and dependencies</b></summary>
 
-design-skills orchestrates two existing skill plugins and one external service. It refuses to run without the two hard dependencies; soft dependencies degrade to manual flows.
+design-skills orchestrates two existing skill plugins and one external service. The two skill plugins are fetched automatically on first run if not installed (pre-installing just speeds startup); the external service is optional and degrades to manual flows.
 
-### Hard dependencies
+### Skill plugins (auto-fetched if missing)
 
 - **[superpowers](https://github.com/obra/superpowers)** — provides `brainstorming`, `writing-plans`, `subagent-driven-development`, and the visual-companion fallback.
   - Claude Code: `claude plugin install obra/superpowers`
@@ -83,6 +83,8 @@ design-skills orchestrates two existing skill plugins and one external service. 
 - **[frontend-design](https://github.com/anthropics/claude-code/tree/main/plugins/frontend-design)** — Anthropic's official skill for the mockup generation, shipped via the `claude-code-plugins` marketplace.
   - Claude Code: `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`
   - Other harnesses: drop `plugins/frontend-design/skills/frontend-design/SKILL.md` into the harness's skill directory.
+
+Pre-installing `superpowers` and `frontend-design` speeds startup, but is optional — `design-feature` fetches any missing sub-skill into `~/.markup-design/deps` on first run (requires network the first time).
 
 ### Soft dependencies (degrade gracefully)
 
@@ -97,7 +99,7 @@ Each skill declares its minimum supported Markup server version in `SKILL.md` fr
 
 | design-skills tag | Min Markup server |
 |---|---|
-| v0.6.1 | 0.2.0 |
+| v0.7.0 | 0.2.0 |
 
 </details>
 

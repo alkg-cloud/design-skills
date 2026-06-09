@@ -9,7 +9,7 @@ compat:
 
 > **Convenção de idioma:** strings printadas/prompted ao usuário → PT-BR. Instruções ao agente → English.
 
-This skill orchestrates the end-to-end lifecycle of a user-visible feature, keeping the Design System and the code implementation rigorously in sync. It composes other skills (`brainstorming` and `writing-plans` from the **superpowers** plugin, plus `frontend-design` from Anthropic's official **frontend-design** plugin) rather than replacing them.
+This skill orchestrates the end-to-end lifecycle of a user-visible feature, keeping the Design System and the code implementation rigorously in sync. It composes other skills (`brainstorming` and `writing-plans` from the **superpowers** plugin, plus `frontend-design` from Anthropic's official **frontend-design** plugin) rather than replacing them. Those plugins do **not** need to be pre-installed: any missing sub-skill is fetched into a per-user cache at skill start and read inline (see § "Dependency resolution").
 
 ## Cross-harness tool reference
 
@@ -24,7 +24,7 @@ The instructions below are written using Claude Code tool names (`Read`, `Write`
 | Background process | `Bash` with `run_in_background: true` | `run_shell_command` then `&` + log file (no native background flag) | native shell tool with `&` + log file |
 | Search file content | `Grep` | `grep_search` | native search |
 | Find files by name | `Glob` | `glob` | native glob |
-| Invoke a sub-skill | `Skill: <plugin>:<skill>` (via the Skill tool) | `activate_skill('<plugin>:<skill>')` | no `Skill` tool — open the SKILL.md inline and follow it as the active instruction set |
+| Invoke a sub-skill | `Skill: <plugin>:<skill>` if installed, else read the cached `SKILL.md` inline (see § "Invoking a sub-skill") | `activate_skill('<plugin>:<skill>')` if installed, else read cached `SKILL.md` inline | no `Skill` tool — open the (installed or cached) SKILL.md inline and follow it as the active instruction set |
 | Dispatch subagent | `Task` / `Explore` agent | `@generalist` (or named: `@code-reviewer`) | `spawn_agent` (requires `multi_agent = true` in `~/.codex/config.toml`) |
 | Track tasks | `TaskCreate` / `TaskUpdate` | `write_todos` | `update_plan` |
 
@@ -55,7 +55,7 @@ Distribution per harness:
 | **Gemini CLI** | `gemini extensions install obra/superpowers` (exposes `activate_skill`) | No first-party extension; drop `plugins/frontend-design/skills/frontend-design/SKILL.md` into the Gemini skills dir |
 | **Codex CLI** | `/plugins` → search `superpowers` → Install Plugin (verified 2026-05-23; superpowers ships a `.codex-plugin/` manifest). Fallback: `gh repo clone obra/superpowers ~/.codex/superpowers && mkdir -p ~/.agents/skills && ln -s ~/.codex/superpowers/skills ~/.agents/skills/superpowers`, then restart Codex. (`skill-installer` is NOT a supported install path for Codex.) | No Codex package; clone `plugins/frontend-design/skills/frontend-design` from `anthropics/claude-code` into `~/.codex/skills/frontend-design`, then restart Codex |
 
-If a required sub-skill cannot be loaded, the Hard preconditions block below applies.
+If a required sub-skill is not installed, it is fetched into a per-user cache and read inline per § "Dependency resolution" below; it only hard-refuses when neither installed nor cacheable (offline with no cache).
 
 ### Agent guidelines file across harnesses
 
@@ -94,21 +94,65 @@ If either is unset when the skill starts, the very first `./scripts/doctor.sh` i
 | `lint-ds`      | `markup-cli check --build --strict`                     | Pure-local structural lint; no network                 |
 | `comment`      | `markup-cli comments {list,read,reply,react,resolve}`   | Subcommand dispatcher; inline `curl` is also acceptable for one-offs |
 
-## Hard preconditions (refuse if missing)
+## Dependency resolution (installed → cached → stale → refuse)
 
-This skill is a hard-fail wrapper unless the following are present:
+This skill composes sub-skills from **superpowers** (`brainstorming`, `writing-plans`,
+`subagent-driven-development`, `executing-plans`, `using-git-worktrees`) and Anthropic's
+**frontend-design**. Pre-installing those plugins is the fast path, but it is **not required** —
+missing sub-skills are fetched into a per-user cache at skill start and consumed by reading their
+`SKILL.md` inline (the same mechanism Codex CLI already uses, since it has no `Skill` tool).
 
-1. **superpowers plugin installed** — the skill calls `brainstorming`, `writing-plans`, `subagent-driven-development` via the Skill tool. If any of these three skills are not loadable, abort with:
+Resolve each dependency with this precedence, once at skill start:
 
-   > ❌ HARD: superpowers plugin not detected. Install: https://github.com/obra/superpowers
+1. **Installed plugin** — if the sub-skill appears in the harness's available-skills list, use it
+   via the `Skill` tool (Claude Code) / `activate_skill` (Gemini CLI). Nothing to fetch.
+2. **Fresh cache** — else, if `~/.markup-design/deps` holds a copy fetched < 30 days ago, read its
+   `SKILL.md` inline.
+3. **Refresh** — else run `./scripts/ensure-deps.sh <missing-deps>` (Windows:
+   `pwsh ./scripts/ensure-deps.ps1 <missing-deps>`). It clones superpowers (shallow, branch `main`)
+   and/or curls frontend-design's `SKILL.md` into the cache, honoring the 30-day TTL, and prints a
+   manifest. On success, read the cached `SKILL.md` inline.
+4. **Stale cache** — if the refresh fails (offline / no `git` / no `curl`) but a cache already
+   exists, use it anyway and surface a ⚠ in the capability matrix. `ensure-deps` exits 0 and marks
+   `"stale": true`.
+5. **Refuse (only when truly unavailable)** — if a sub-skill is neither installed nor cached and the
+   fetch fails (`ensure-deps` marks it `"mode": "unavailable"` and exits non-zero), abort with:
+
+   > ❌ HARD: `<dep>` indisponível — não está instalado, não há cache, e o fetch falhou (offline?).
+   > Instale o plugin (superpowers: https://github.com/obra/superpowers · frontend-design:
+   > `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`)
+   > ou rode a skill com rede disponível.
 
    Do not perform any other action. Do not write files. Do not pretend to start.
 
-2. **frontend-design plugin installed** — the skill calls Anthropic's `frontend-design` skill via the Skill tool to generate the Phase 2 mockup. This is a **separate plugin** from superpowers, shipped by Anthropic in the `claude-code-plugins` marketplace at `anthropics/claude-code` (plugin path: `plugins/frontend-design`). If the `frontend-design` skill is not loadable, abort with:
+The manifest schema (stdout of `ensure-deps`, also at `~/.markup-design/deps/manifest.json`):
 
-   > ❌ HARD: frontend-design plugin not detected. Install on Claude Code: `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`. Other harnesses: see § "Sub-skill availability across harnesses".
+```json
+{ "superpowers":     { "path": "<abs>/superpowers", "mode": "cached", "fetchedAt": "<iso>", "stale": false },
+  "frontend-design": { "path": "<abs>/frontend-design/SKILL.md", "mode": "cached", "fetchedAt": "<iso>", "stale": false } }
+```
 
-   Do not perform any other action. Do not write files. Do not pretend to start.
+A dep that is neither installed nor cacheable (offline, fetch failed) is reported as
+`{ "path": null, "mode": "unavailable", "fetchedAt": null, "stale": false }` and `ensure-deps` exits
+non-zero — that triggers the refuse in step 5.
+
+### Invoking a sub-skill (resolution-aware)
+
+Every place this skill uses a composed sub-skill — whether phrased "**Invoke `<sub-skill>`**",
+"passed to `<sub-skill>`", "run `<sub-skill>` inline", or shown in a compose-order diagram —
+resolves through the precedence above. Build a `deps` map at skill start:
+`deps.<sub-skill> = { mode: "installed" | "cached", path }` (plus `stale`). A sub-skill that would
+resolve to `"unavailable"` (neither installed nor cacheable) triggers the refuse in
+§ "Dependency resolution" step 5 **at skill start**, before any call site — so the map only ever
+holds `"installed"` or `"cached"` here. At each call site:
+
+- `mode === "installed"` → invoke via the `Skill` tool (Claude Code) / `activate_skill` (Gemini CLI) — unchanged behavior.
+- `mode === "cached"` → **read `deps.<sub-skill>.path` inline and follow it** as the active
+  instruction set. For superpowers sub-skills the path is the clone root, so the file is
+  `deps.<sub-skill>.path/skills/<sub-skill>/SKILL.md`; for frontend-design it is the `path` itself.
+
+This rule is the single definition of sub-skill invocation. Call sites elsewhere in this skill say
+only "Invoke `<sub-skill>`" and inherit this resolution — do not re-specify the branch per site.
 
 ## Soft dependencies (degrade gracefully, surface a disclaimer)
 
@@ -136,8 +180,14 @@ After the hard check passes, detect optional dependencies and surface a one-bloc
 ```
 design-feature ready. Capability matrix:
 
-  ✓ HARD: superpowers <version> detectado
-  ✓ HARD: frontend-design <version> detectado
+  {superpowers:     ✓ instalado (via plugin)
+                    |  ↻ cacheado fresco (~/.markup-design/deps, fetched <date>)
+                    |  ⚠ cacheado stale (fetch falhou; usando cópia antiga)
+                    |  ✗ indisponível (não instalado, sem cache, offline) → refuse}
+  {frontend-design: ✓ instalado (via plugin)
+                    |  ↻ cacheado fresco (~/.markup-design/deps/frontend-design/SKILL.md)
+                    |  ⚠ cacheado stale
+                    |  ✗ indisponível → refuse}
   {env:             ✓ MARKUP_URL e MARKUP_TOKEN setados
                     |  ✗ MARKUP_URL e/ou MARKUP_TOKEN ausentes
                                                 ↳ setar antes de invocar a skill (export MARKUP_URL=…; export MARKUP_TOKEN=…)
@@ -338,7 +388,7 @@ This check runs **before** §0.3 strategy menu so every subsequent write — `st
    > [se tree sujo] ⚠ Working tree tem mudanças não commitadas — recomendo commitar ou stashar antes de A/B.
 
    - **A**: `git checkout -b feature/design-<repo-name>` → continue in same cwd.
-   - **B**: prefer invoking the `using-git-worktrees` sub-skill if available — Claude Code: `Skill: superpowers:using-git-worktrees`; Gemini CLI: `activate_skill('superpowers:using-git-worktrees')`; Codex CLI: read `~/.codex/superpowers/skills/using-git-worktrees/SKILL.md` inline. If the sub-skill is unavailable, fall back to direct shell: `git worktree add ../<repo-name>-design -b feature/design-<repo-name>`. Change cwd to the new worktree path before continuing. After `cd` into the new worktree, register it: update `~/.markup-design/registry.json` per the §"Worktree registry" write trigger (set `repos[<original-repo-toplevel>].worktrees[<basename-of-worktree-path>] = <new-worktree-abs>`, stamp `schemaVersion: 1`). Print `Registrado worktree em ~/.markup-design/registry.json`.
+   - **B**: prefer invoking the `using-git-worktrees` sub-skill, resolved per § "Invoking a sub-skill" — Claude Code/Gemini: `Skill`/`activate_skill` if installed, else read the cached copy inline at `deps.using-git-worktrees.path/skills/using-git-worktrees/SKILL.md`; Codex CLI: read the installed (`~/.codex/superpowers/...`) or cached `SKILL.md` inline. If neither installed nor cached (offline, no cache), fall back to direct shell: `git worktree add ../<repo-name>-design -b feature/design-<repo-name>`. Change cwd to the new worktree path before continuing. After `cd` into the new worktree, register it: update `~/.markup-design/registry.json` per the §"Worktree registry" write trigger (set `repos[<original-repo-toplevel>].worktrees[<basename-of-worktree-path>] = <new-worktree-abs>`, stamp `schemaVersion: 1`). Print `Registrado worktree em ~/.markup-design/registry.json`.
    - **C**: continue on current branch, print `Continuando em <branch> — não recomendado.`
 
 5. **If current branch is anything else:** print `Executando em \`<branch>\`. ✓` and continue.
@@ -697,6 +747,8 @@ Use the `brainstorming` skill's mini-server to host the mockup over HTTP.
 1. Locate `scripts/start-server.sh` by searching the harness-specific plugin path. Try each in order and use the first match:
 
    ```bash
+   # Cached copy fetched by ensure-deps (any harness) — check first
+   find ~/.markup-design/deps/superpowers -name start-server.sh -path '*brainstorming/scripts*' 2>/dev/null | head -1
    # Claude Code
    find ~/.claude/plugins -name start-server.sh -path '*brainstorming/scripts*' 2>/dev/null | head -1
    # Gemini CLI
@@ -705,7 +757,7 @@ Use the `brainstorming` skill's mini-server to host the mockup over HTTP.
    find ~/.codex/superpowers -name start-server.sh -path '*brainstorming/scripts*' 2>/dev/null | head -1
    ```
 
-   If none match, invoke the brainstorming sub-skill via the harness's mechanism (Claude Code: `Skill: superpowers:brainstorming`; Gemini CLI: `activate_skill('superpowers:brainstorming')`; Codex CLI: read the SKILL.md inline) and use the printed base directory under `scripts/`.
+   If none match, resolve `brainstorming` per § "Invoking a sub-skill" and invoke it to obtain its base directory under `scripts/`. (If `deps.brainstorming.mode === "unavailable"`, do not attempt this — skip the companion server and use the pure `file://` fallback below.)
 2. Start the server in the background:
 
    ```bash
@@ -944,7 +996,7 @@ Do NOT invoke writing-plans until ALL of the following are true:
 
    Record the outcome of both checks in `state.json:phase4.postPlanChecklist = { dsTasks: "ok" | "confirmed-no-ds" | "revised", testPrecedence: "ok" | "confirmed-no-tests" | "revised" }`. This is what the Phase 4 gate reads.
 
-3. **Execute via `subagent-driven-development`** (or `executing-plans` — ask the user). Unlike Phase 1, parallel subagents are useful here because plan tasks usually touch independent files.
+3. **Invoke `subagent-driven-development`** (or **`executing-plans`** — ask the user). Unlike Phase 1, parallel subagents are useful here because plan tasks usually touch independent files.
 
 ### Phase 4 gate
 
@@ -1162,6 +1214,14 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
     "type": "mcp__claude-in-chrome__form_input",
     "navigate": "mcp__claude-in-chrome__navigate"
   },
+  "deps": {
+    "brainstorming":               { "mode": "installed", "path": null, "stale": false },
+    "writing-plans":               { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "subagent-driven-development": { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "executing-plans":             { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "using-git-worktrees":         { "mode": "cached", "path": "/home/u/.markup-design/deps/superpowers", "stale": false },
+    "frontend-design":             { "mode": "cached", "path": "/home/u/.markup-design/deps/frontend-design/SKILL.md", "stale": false }
+  },
   "qaRun": {
     "folder": ".markup-design/qa/pricing-card/2026-05-23-141207",
     "scenarios": ["default-live", "default-ds", "hover-live", "hover-ds"],
@@ -1172,7 +1232,7 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
 }
 ```
 
-- `schemaVersion`: integer. Currently `1`. Reads treat missing `schemaVersion` as `0` and migrate inline (defaults: `chromeMcp` absent ⇒ resolve via §"Chrome MCP tool resolution"; `qaRun` absent ⇒ `null`). See `docs/SCHEMA-CHANGELOG.md` for the compat policy.
+- `schemaVersion`: integer. Currently `1`. Reads treat missing `schemaVersion` as `0` and migrate inline (defaults: `chromeMcp` absent ⇒ resolve via §"Chrome MCP tool resolution"; `qaRun` absent ⇒ `null`; `deps` absent ⇒ resolve fresh via §"Dependency resolution"). See `docs/SCHEMA-CHANGELOG.md` for the compat policy.
 - `framework`: copied from `.markup-design/scratch/strategy.json:framework` at the first `state.json` write of this feature. Audit trail of which framework was active.
 - `strategy`: copied from `.markup-design/scratch/strategy.json:chosen` at the first `state.json` write of this feature. Audit trail of which strategy was active.
 - `tweakerChoices`: `null` before Phase 1 approval; flat object of `id → value` after.
@@ -1180,6 +1240,7 @@ Diga "QA passes" quando estiver satisfeito; "QA fails" + descreva o drift.
 - `companionServer.tunnelUrl`: `null` if the user declined the Cloudflare tunnel or `cloudflared` is absent.
 - `companionServer.pidFile`: path to the file that holds the cloudflared background-process PID. `null` if the tunnel is not active. Used on resume to kill the prior tunnel before relaunching.
 - `chromeMcp`: object mapping capability names (`evaluateJs`, `screenshot`, `click`, `hover`, `focus`, `type`, `navigate`) to the resolved tool name on the active Chrome MCP server. Computed once at skill start (see § "Chrome MCP tool resolution"). `null` when no Chrome MCP server is registered — Phase 5 falls back to the manual checklist in that case.
+- `deps`: object mapping each composed sub-skill name to its resolution `{ mode: "installed" | "cached", path, stale }`. Computed once at skill start via § "Dependency resolution" (`./scripts/ensure-deps.sh` for non-installed deps). `path` is `null` when `mode === "installed"`; for `cached` superpowers sub-skills it is the clone root (read `<path>/skills/<name>/SKILL.md`), for frontend-design it is the `SKILL.md` itself. Held in memory until the feature slug exists, then persisted here. Absent in older state files (pre-`deps`) — resolve fresh on read; this is an additive field and does not bump `schemaVersion`.
 - `qaRun`: per-feature Phase 5 run record. `folder` is the relative path under `.markup-design/qa/<slug>/<YYYY-MM-DD-HHMMSS>/` where all `<scenario>-{live,ds}.png` screenshots for the latest run live. `scenarios` lists scenario IDs covered (one per matrix row plus any auto-sweep additions). `discoveredStates` lists states observed via the auto-sweep but absent from the matrix. `deltas` is an array of `{ scenario, cause, decision }` entries (one per delta found). `null` until Phase 5 runs.
 
 **`branchCheck` lives only in `strategy.json`, not `state.json`.** Rationale: the §0.2.5 branch decision is repo-wide and persistent across features (one strategy → N features in the same worktree). Duplicating it per-feature would create two sources of truth for the same fact. Per-feature `state.json` reads `strategy.json:branchCheck` on resume (see §0.6 Branch-check reuse).
