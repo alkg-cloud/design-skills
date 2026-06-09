@@ -84,6 +84,8 @@ for dep in "$@"; do
 
   sentinel="$(sentinel_path "$dep")"
   root="$(root_path "$dep")"
+  # JSON-escape backslash + double-quote in the path (DEPS_DIR is user-controlled).
+  root=${root//\\/\\\\}; root=${root//\"/\\\"}
   stamp="$DEPS_DIR/.stamps/$dep.stamp"
 
   present=0; [ -e "$sentinel" ] && present=1

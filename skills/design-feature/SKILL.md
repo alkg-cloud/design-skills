@@ -134,9 +134,13 @@ The manifest schema (stdout of `ensure-deps`, also at `~/.markup-design/deps/man
 
 ### Invoking a sub-skill (resolution-aware)
 
-Every "**Invoke `<sub-skill>`**" instruction in this skill resolves through the precedence above.
-Build a `deps` map at skill start: `deps.<sub-skill> = { mode: "installed" | "cached", path }`
-(plus `stale`). At each call site:
+Every place this skill uses a composed sub-skill — whether phrased "**Invoke `<sub-skill>`**",
+"passed to `<sub-skill>`", "run `<sub-skill>` inline", or shown in a compose-order diagram —
+resolves through the precedence above. Build a `deps` map at skill start:
+`deps.<sub-skill> = { mode: "installed" | "cached", path }` (plus `stale`). A sub-skill that would
+resolve to `"unavailable"` (neither installed nor cacheable) triggers the refuse in
+§ "Dependency resolution" step 5 **at skill start**, before any call site — so the map only ever
+holds `"installed"` or `"cached"` here. At each call site:
 
 - `mode === "installed"` → invoke via the `Skill` tool (Claude Code) / `activate_skill` (Gemini CLI) — unchanged behavior.
 - `mode === "cached"` → **read `deps.<sub-skill>.path` inline and follow it** as the active

@@ -4,11 +4,11 @@
 # Exit: 0 = all requested deps usable; 1 = a dep had no cache and could not be fetched; 4 = bad args / bad TTL.
 $ErrorActionPreference = 'Stop'
 
-if ($args.Count -lt 1) { Write-Error 'usage: ensure-deps.ps1 <dep> [<dep> ...] (dep: superpowers|frontend-design)'; exit 4 }
+if ($args.Count -lt 1) { [Console]::Error.WriteLine('usage: ensure-deps.ps1 <dep> [<dep> ...] (dep: superpowers|frontend-design)'); exit 4 }
 
 $DepsDir = if ($env:DESIGN_SKILLS_DEPS_DIR) { $env:DESIGN_SKILLS_DEPS_DIR } else { Join-Path $HOME '.markup-design/deps' }
 $TtlRaw  = if ($null -ne $env:DESIGN_SKILLS_DEPS_TTL_DAYS -and $env:DESIGN_SKILLS_DEPS_TTL_DAYS -ne '') { $env:DESIGN_SKILLS_DEPS_TTL_DAYS } else { '30' }
-if ($TtlRaw -notmatch '^\d+$') { Write-Error "DESIGN_SKILLS_DEPS_TTL_DAYS must be a non-negative integer, got: $TtlRaw"; exit 4 }
+if ($TtlRaw -notmatch '^\d+$') { [Console]::Error.WriteLine("DESIGN_SKILLS_DEPS_TTL_DAYS must be a non-negative integer, got: $TtlRaw"); exit 4 }
 $TtlDays = [int]$TtlRaw
 $SpRepo  = if ($env:SUPERPOWERS_REPO) { $env:SUPERPOWERS_REPO } else { 'https://github.com/obra/superpowers' }
 $SpRef   = if ($env:SUPERPOWERS_REF) { $env:SUPERPOWERS_REF } else { 'main' }
@@ -17,7 +17,7 @@ $FdUrl   = if ($env:FRONTEND_DESIGN_URL) { $env:FRONTEND_DESIGN_URL } else { 'ht
 $StampsDir = Join-Path $DepsDir '.stamps'
 New-Item -ItemType Directory -Force -Path $StampsDir | Out-Null
 $Manifest = Join-Path $DepsDir 'manifest.json'
-$NowEpoch = [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$NowEpoch = [long][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $TtlSecs  = $TtlDays * 86400
 
 function Root-Path($dep) { switch ($dep) {
@@ -63,15 +63,15 @@ function Do-Fetch($dep) { switch ($dep) {
 $entries = @()
 $overall = 0
 foreach ($dep in $args) {
-  if ($dep -notin @('superpowers','frontend-design')) { Write-Error "unknown dep: $dep"; exit 4 }
+  if ($dep -notin @('superpowers','frontend-design')) { [Console]::Error.WriteLine("unknown dep: $dep"); exit 4 }
   $sentinel = Sentinel-Path $dep
   $root = (Root-Path $dep) -replace '\\','/'
   $stamp = Join-Path $StampsDir "$dep.stamp"
   $present = Test-Path $sentinel
-  $sEpoch = 0; $sIso = ''
+  [long]$sEpoch = 0; $sIso = ''
   if (Test-Path $stamp) {
     $lines = @(Get-Content $stamp)
-    if ($lines.Count -ge 1) { [int]::TryParse(($lines[0] -replace '[^0-9]',''), [ref]$sEpoch) | Out-Null }
+    if ($lines.Count -ge 1) { [long]::TryParse(($lines[0] -replace '[^0-9]',''), [ref]$sEpoch) | Out-Null }
     if ($lines.Count -ge 2) { $sIso = $lines[1] }
   }
   $age = $NowEpoch - $sEpoch
@@ -81,7 +81,7 @@ foreach ($dep in $args) {
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$sIso`",`"stale`":false}"
   } elseif (Do-Fetch $dep) {
     $nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    Set-Content -Path $stamp -Value @("$NowEpoch", $nowIso) -Encoding utf8
+    [System.IO.File]::WriteAllLines($stamp, [string[]]@("$NowEpoch", $nowIso))
     $entries += "`"$dep`":{`"path`":`"$root`",`"mode`":`"cached`",`"fetchedAt`":`"$nowIso`",`"stale`":false}"
   } elseif ($present) {
     [Console]::Error.WriteLine("ensure-deps: $dep fetch failed; using stale cache")
@@ -95,7 +95,7 @@ foreach ($dep in $args) {
 }
 $json = '{' + ($entries -join ',') + '}'
 $tmpManifest = Join-Path $DepsDir ('.manifest.' + [System.IO.Path]::GetRandomFileName())
-Set-Content -Path $tmpManifest -Value $json -Encoding utf8
+[System.IO.File]::WriteAllText($tmpManifest, $json)
 Write-Output $json
 Move-Item -Force $tmpManifest $Manifest
 exit $overall
