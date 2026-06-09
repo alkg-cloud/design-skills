@@ -88,6 +88,8 @@ design-skills orchestrates two existing skill plugins and one external service. 
   - Claude Code: `claude plugin marketplace add anthropics/claude-code && claude plugin install frontend-design@claude-code-plugins`
   - Other harnesses: drop `plugins/frontend-design/skills/frontend-design/SKILL.md` into the harness's skill directory.
 
+Pre-installing `superpowers` and `frontend-design` speeds startup, but is optional — `design-feature` fetches any missing sub-skill into `~/.markup-design/deps` on first run (requires network the first time).
+
 ### Soft dependencies (degrade gracefully)
 
 - **[Markup](https://markup.alego.cloud)** instance — hosted mockups + comment iteration + DS components navigation. Without `MARKUP_URL`/`MARKUP_TOKEN`, the skill walks the user through manual equivalents and uses the superpowers visual-companion as a lightweight viewer (no comments, no history, no DS navigation). See `skills/design-feature/scripts/README.md` for the full env-var contract.

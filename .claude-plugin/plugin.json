@@ -1,7 +1,7 @@
 {
   "name": "design-skills",
-  "description": "Skills (design-feature, bootstrap-design-system) that orchestrate the full feature workflow from idea-mockup through implementation parity. Hard-depends on the superpowers plugin (brainstorming, writing-plans, subagent-driven-development) and Anthropic's frontend-design plugin (claude-code-plugins marketplace). Soft-depends on a connected Markup online instance and Chrome MCP.",
-  "version": "0.6.1",
+  "description": "Skills (design-feature, bootstrap-design-system) that orchestrate the full feature workflow from idea-mockup through implementation parity. Composes the superpowers plugin (brainstorming, writing-plans, subagent-driven-development) and Anthropic's frontend-design plugin; if either is not installed it is fetched into a per-user cache at skill start (no pre-install required). Soft-depends on a connected Markup online instance and Chrome MCP.",
+  "version": "0.7.0",
   "author": {
     "name": "Alexandre Camillo",
     "email": "acamillo.goncalves@gmail.com"
